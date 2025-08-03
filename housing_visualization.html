@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Data on the Housing Prices</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background-color: #f8f9fa;
+    }
+    
+    .chart-container {
+        position: relative;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin: 20px 0;
+    }
+    
+    .axis {
+        font-size: 12px;
+    }
+    
+    .line {
+        fill: none;
+        stroke: #e74c3c;
+        stroke-width: 3;
+    }
+    
+    .dot {
+        fill: #e74c3c;
+        stroke: white;
+        stroke-width: 2;
+    }
+    .progress-dot {
+        display: inline-block;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #ddd;
+        color: white;
+        line-height: 30px;
+        margin: 0 10px;
+        font-weight: bold;
+    }
+
+    .progress-dot.active {
+        background: #667eea;
+    }
+
+    button {
+        padding: 10px 20px;
+        margin: 0 10px;
+        font-size: 16px;
+        border: none;
+        border-radius: 5px;
+        background: #667eea;
+        color: white;
+        cursor: pointer;
+    }
+
+    button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+    }
+
+    /* Base annotation style */
+    .annotation {
+        position: absolute;
+        background: rgba(255, 255, 255, 0.65);
+        border: 2px solid rgba(51, 51, 51, 0.8);
+        border-radius: 8px;
+        padding: 10px;
+        font-size: 12px;
+        font-weight: 500;
+        max-width: 200px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+        z-index: 100;
+    }
+
+    /* Arrow pointing left (comes from left side of annotation) */
+    .annotation.arrow-left::before {
+        content: '';
+        position: absolute;
+        border: 6px solid transparent;
+        border-right-color: #333;
+        left: -12px;
+        top: 45px;
+    }
+
+    /* Arrow pointing right (comes from right side of annotation) */
+    .annotation.arrow-right::before {
+        content: '';
+        position: absolute;
+        border: 6px solid transparent;
+        border-left-color: #333;
+        right: -12px;
+        top: 45px;
+    }
+</style>
+</head>
+    <body>
+        <div style="text-align: center; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <h1>Is the American Housing Market due for a Price Correction?</h1>
+            <p>The data on housing prices from 2018 to 2025 shows give us a reality check on the American Real Estate Market</p>
+        </div>
+        
+        <!-- Scene Progress Indicators -->
+        <div style="text-align: center; padding: 20px;">
+            <span id="dot1" class="progress-dot active">1</span>
+            <span id="dot2" class="progress-dot">2</span>
+            <span id="dot3" class="progress-dot">3</span>
+        </div>
+        
+        <!-- Main Content Area -->
+        <div id="content">
+            <p>Loading data...</p>
+        </div>
+        
+        <!-- Navigation Buttons -->
+        <div style="text-align: center; padding: 20px;">
+            <button id="prevBtn" onclick="previousScene()" disabled>Previous</button>
+            <button id="nextBtn" onclick="nextScene()">Next Scene</button>
+        </div>
+
+        <script>
+            let housingData = [];
+            let mortgageData = [];
+            let currentScene = 1;
+
+            // Your existing loadData function stays exactly the same
+            async function loadData() {
+                try {
+                    console.log("Starting to load data...");
+                    
+                    const housingRaw = await d3.csv("clean_data/housing_data.csv");
+                    housingData = housingRaw.map(d => ({
+                        date: new Date(d.PERIOD_BEGIN),
+                        price: +d.MEDIAN_SALE_PRICE,
+                        supply: +d.MONTHS_OF_SUPPLY,
+                        dom: +d.MEDIAN_DOM,
+                        drops: +d.PRICE_DROPS,
+                        homes_sold: +d.HOMES_SOLD
+                    }));
+                    
+                    const mortgageRaw = await d3.csv("clean_data/mortgage_rates.csv");
+                    mortgageData = mortgageRaw.map(d => ({
+                        date: new Date(d.observation_date),
+                        rate: +d.MORTGAGE30US
+                    }));
+                    
+                    console.log("Data loaded successfully!");
+                    showScene(1); // Start with scene 1
+                    
+                } catch (error) {
+                    console.error("Error loading data:", error);
+                    document.getElementById("content").innerHTML = `<p>Error: ${error.message}</p>`;
+                }
+            }
+
+            // Navigation functions
+            function nextScene() {
+                if (currentScene < 3) {
+                    currentScene++;
+                    showScene(currentScene);
+                }
+            }
+
+            function previousScene() {
+                if (currentScene > 1) {
+                    currentScene--;
+                    showScene(currentScene);
+                }
+            }
+
+            function showScene(sceneNum) {
+                currentScene = sceneNum;
+                
+                // Update progress dots
+                document.querySelectorAll('.progress-dot').forEach(dot => dot.classList.remove('active'));
+                document.getElementById(`dot${sceneNum}`).classList.add('active');
+                
+                // Update buttons
+                document.getElementById('prevBtn').disabled = (sceneNum === 1);
+                document.getElementById('nextBtn').disabled = (sceneNum === 3);
+                document.getElementById('nextBtn').textContent = (sceneNum === 3) ? 'Complete' : 'Next Scene';
+                
+                // Show the appropriate scene
+                if (sceneNum === 1) createChart1();
+                else if (sceneNum === 2) createChart2();
+                else if (sceneNum === 3) createChart3();
+            }
+
+            function createChart1() {
+                document.getElementById("content").innerHTML = `
+                    <h2>The Pandemic Housing Boom (Scene 1)</h2>
+                    <p>While home prices in the U.S. have been on a steady upward trend for years, the start of the COVID-19 pandemic brought widespread expectations of a market crash.<br>
+                    However, following a brief period of uncertainty and modest price reductions, home prices surged and have remained elevated ever since.</p>
+                    <div class="chart-container" id="chart1"></div>
+                `;
+                
+                const margin = {top: 20, right: 50, bottom: 50, left: 80};
+                const width = 800 - margin.left - margin.right;
+                const height = 400 - margin.top - margin.bottom;
+                
+                const svg = d3.select("#chart1")
+                    .append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom);
+                
+                const g = svg.append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+                
+                const xScale = d3.scaleTime()
+                    .domain(d3.extent(housingData, d => d.date))
+                    .range([0, width]);
+                
+                const yScale = d3.scaleLinear()
+                    .domain(d3.extent(housingData, d => d.price))
+                    .range([height, 0]);
+                
+                const line = d3.line()
+                    .x(d => xScale(d.date))
+                    .y(d => yScale(d.price))
+                    .curve(d3.curveMonotoneX);
+                
+                // Add axes
+                g.append("g")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(d3.axisBottom(xScale).tickFormat(d3.timeFormat("%Y")));
+                
+                g.append("g")
+                    .call(d3.axisLeft(yScale).tickFormat(d => `$${d/1000}k`));
+                
+                // Add price line (RED)
+                g.append("path")
+                    .datum(housingData)
+                    .attr("fill", "none")
+                    .attr("stroke", "#e74c3c")
+                    .attr("stroke-width", 3)
+                    .attr("d", line);
+                
+                // Add axis label
+                g.append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 0 - margin.left)
+                    .attr("x", 0 - (height / 2))
+                    .attr("dy", "1em")
+                    .style("text-anchor", "middle")
+                    .style("font-weight", "bold")
+                    .text("Median Home Price");
+                
+                // Add title
+                g.append("text")
+                    .attr("x", width / 2)
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("font-weight", "bold")
+                    .text("Home Price Explosion (2018-2025)");
+
+                // Add annotation for COVID dip and recovery
+                const covidDip = housingData.find(d => d.date.getFullYear() === 2020 && d.date.getMonth() === 2); // March 2020
+                const covidRecovery = housingData.find(d => d.date.getFullYear() === 2020 && d.date.getMonth() === 5); // June 2020
+
+                if (covidDip && covidRecovery) {
+                    // Add annotation text box - positioned BELOW the data point
+                    d3.select("#chart1").append("div")
+                        .attr("class", "annotation arrow-left")
+                        .style("left", (xScale(covidDip.date) + 140 ) + "px")   // Slightly to the right
+                        .style("top", (yScale(covidDip.price) ) + "px")   // BELOW the data point
+                        .html(`
+                            <strong>COVID Price Dip</strong><br>
+                            Brief 3-month decline<br>
+                            Mar-Jun 2020<br>
+                            Then explosive growth
+                        `);
+                }
+
+                console.log("Chart created with", housingData.length, "data points");
+            }
+
+            function createChart2() {
+                document.getElementById("content").innerHTML = `
+                    <h2>The FED strikes back (Scene 2)</h2>
+                    <p>A combination of people working from home and historically low mortgage rates caused home prices to skyrocket.<br>
+                    To combat the resulting affordability crisis, the Fed aggressively increased interest rates.<br>
+                    While this action successfully slowed the rate of price increases, it did not bring home prices back down to pre-pandemic levels.</p>
+                    <div class="chart-container" id="chart2"></div>
+                `;
+                
+                const margin = {top: 20, right: 80, bottom: 50, left: 80};
+                const width = 800 - margin.left - margin.right;
+                const height = 400 - margin.top - margin.bottom;
+                
+                const svg = d3.select("#chart2")
+                    .append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom);
+                
+                const g = svg.append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+                
+                const xScale = d3.scaleTime()
+                    .domain(d3.extent(housingData, d => d.date))
+                    .range([0, width]);
+                
+                const yScalePrice = d3.scaleLinear()
+                    .domain(d3.extent(housingData, d => d.price))
+                    .range([height, 0]);
+                
+                const yScaleRate = d3.scaleLinear()
+                    .domain(d3.extent(mortgageData, d => d.rate))
+                    .range([height, 0]);
+                
+                const priceLine = d3.line()
+                    .x(d => xScale(d.date))
+                    .y(d => yScalePrice(d.price))
+                    .curve(d3.curveMonotoneX);
+                
+                const rateLine = d3.line()
+                    .x(d => xScale(d.date))
+                    .y(d => yScaleRate(d.rate))
+                    .curve(d3.curveMonotoneX);
+                
+                // Add axes
+                g.append("g")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(d3.axisBottom(xScale).tickFormat(d3.timeFormat("%Y")));
+                
+                g.append("g")
+                    .call(d3.axisLeft(yScalePrice).tickFormat(d => `$${d/1000}k`));
+                
+                g.append("g")
+                    .attr("transform", `translate(${width}, 0)`)
+                    .call(d3.axisRight(yScaleRate).tickFormat(d => `${d}%`));
+                
+                // Add price line (RED)
+                g.append("path")
+                    .datum(housingData)
+                    .attr("fill", "none")
+                    .attr("stroke", "#e74c3c")
+                    .attr("stroke-width", 3)
+                    .attr("d", priceLine);
+                
+                // Add rate line (BLUE)
+                g.append("path")
+                    .datum(mortgageData)
+                    .attr("fill", "none")
+                    .attr("stroke", "#3498db")
+                    .attr("stroke-width", 3)
+                    .attr("d", rateLine);
+                
+                // Add axis labels
+                g.append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 0 - margin.left)
+                    .attr("x", 0 - (height / 2))
+                    .attr("dy", "1em")
+                    .style("text-anchor", "middle")
+                    .style("font-weight", "bold")
+                    .style("fill", "#e74c3c")
+                    .text("Median Home Price");
+                
+                g.append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", width + margin.right)
+                    .attr("x", 0 - (height / 2))
+                    .attr("dy", "-1em")
+                    .style("text-anchor", "middle")
+                    .style("font-weight", "bold")
+                    .style("fill", "#3498db")
+                    .text("Mortgage Rate (%)");
+                
+                // Add legend
+                const legend = g.append("g")
+                    .attr("transform", `translate(20, 20)`);
+                
+                legend.append("line")
+                    .attr("x1", 0).attr("x2", 20)
+                    .attr("y1", 0).attr("y2", 0)
+                    .style("stroke", "#e74c3c")
+                    .style("stroke-width", 3);
+                
+                legend.append("text")
+                    .attr("x", 25)
+                    .attr("y", 5)
+                    .text("Home Prices")
+                    .style("fill", "#e74c3c")
+                    .style("font-weight", "bold");
+                
+                legend.append("line")
+                    .attr("x1", 0).attr("x2", 20)
+                    .attr("y1", 20).attr("y2", 20)
+                    .style("stroke", "#3498db")
+                    .style("stroke-width", 3);
+                
+                legend.append("text")
+                    .attr("x", 25)
+                    .attr("y", 25)
+                    .text("Mortgage Rates")
+                    .style("fill", "#3498db")
+                    .style("font-weight", "bold");
+                
+                // Add title
+                g.append("text")
+                    .attr("x", width / 2)
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("font-weight", "bold")
+                    .text("Fed Rates vs Home Prices (2018-2025)");
+
+                // Find historic low mortgage rate
+                const lowRate = mortgageData.reduce((min, d) => d.rate < min.rate ? d : min);
+                const rateSpike = mortgageData.find(d => d.date.getFullYear() === 2022 && d.rate > 5);
+
+                if (lowRate) {
+                    // Historic low annotation - positioned to the right
+                    d3.select("#chart2").append("div")
+                        .attr("class", "annotation arrow-right")
+                        .style("left", (xScale(lowRate.date) - 45) + "px")
+                        .style("top", (yScaleRate(lowRate.rate) + 10) + "px")
+                        .html(`
+                            <strong>Historic Low</strong><br>
+                            ${lowRate.rate}% mortgage rate<br>
+                            ${d3.timeFormat("%b %Y")(lowRate.date)}<br>
+                            Fueled price boom
+                        `);
+                }
+
+                if (rateSpike) {
+                    // Fed reversal annotation - positioned to the left since it's on the right side
+                    d3.select("#chart2").append("div")
+                        .attr("class", "annotation arrow-left")
+                        .style("left", (xScale(rateSpike.date) + 90) + "px")
+                        .style("top", (yScaleRate(rateSpike.rate) + 120) + "px")
+                        .html(`
+                            <strong>Fed Reversal</strong><br>
+                            Aggressive rate hikes<br>
+                            Started 2022<br>
+                            Market cooling begins
+                        `);
+                }
+
+                console.log("Scene 2 chart created");
+            }
+
+            function createChart3() {
+                document.getElementById("content").innerHTML = `
+                    <h2>Housing Market Reality Check (Scene 3)</h2>
+                    <p>Even though home prices remain elevated, houses are taking much longer to sell and the number of units sold has plummeted. These factors indicate that the housing market may be overdue for a price correction.</p>
+                    <div style="background: #e3f2fd; border: 1px solid #2196f3; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                        <strong>Explore:</strong> Hover over the chart to find more information about the housing market in a given period, such as the percentage of homes sold with a price drop or the median days on market.
+                    </div>
+                    <div class="chart-container" id="chart3"></div>
+                `;
+                
+                const margin = {top: 40, right: 80, bottom: 50, left: 80};
+                const width = 800 - margin.left - margin.right;
+                const height = 400 - margin.top - margin.bottom;
+                
+                const svg = d3.select("#chart3")
+                    .append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom);
+                
+                const g = svg.append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+                
+                const xScale = d3.scaleTime()
+                    .domain(d3.extent(housingData, d => d.date))
+                    .range([0, width]);
+                
+                const yScalePrice = d3.scaleLinear()
+                    .domain(d3.extent(housingData, d => d.price))
+                    .range([height, 0]);
+                
+                const yScaleSales = d3.scaleLinear()
+                    .domain(d3.extent(housingData, d => d.homes_sold))
+                    .range([height, 0]);
+                
+                const priceLine = d3.line()
+                    .x(d => xScale(d.date))
+                    .y(d => yScalePrice(d.price))
+                    .curve(d3.curveMonotoneX);
+                
+                const salesLine = d3.line()
+                    .x(d => xScale(d.date))
+                    .y(d => yScaleSales(d.homes_sold))
+                    .curve(d3.curveMonotoneX);
+                
+                // Create tooltip
+                const tooltip = d3.select("body").append("div")
+                    .attr("class", "tooltip")
+                    .style("position", "absolute")
+                    .style("background", "rgba(0,0,0,0.9)")
+                    .style("color", "white")
+                    .style("padding", "12px")
+                    .style("border-radius", "6px")
+                    .style("font-size", "13px")
+                    .style("opacity", 0)
+                    .style("pointer-events", "none")
+                    .style("box-shadow", "0 4px 8px rgba(0,0,0,0.3)");
+                
+                // Add axes
+                g.append("g")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(d3.axisBottom(xScale).tickFormat(d3.timeFormat("%Y")));
+                
+                g.append("g")
+                    .call(d3.axisLeft(yScalePrice).tickFormat(d => `$${d/1000}k`));
+                
+                g.append("g")
+                    .attr("transform", `translate(${width}, 0)`)
+                    .call(d3.axisRight(yScaleSales).tickFormat(d => `${d/1000}k`));
+                
+                // Add price line (RED)
+                g.append("path")
+                    .datum(housingData)
+                    .attr("fill", "none")
+                    .attr("stroke", "#e74c3c")
+                    .attr("stroke-width", 3)
+                    .attr("d", priceLine);
+                
+                // Add sales line (GREEN)
+                g.append("path")
+                    .datum(housingData)
+                    .attr("fill", "none")
+                    .attr("stroke", "#27ae60")
+                    .attr("stroke-width", 3)
+                    .attr("d", salesLine);
+                
+                // Add invisible overlay for chart-wide hover detection
+                const overlay = g.append("rect")
+                    .attr("width", width)
+                    .attr("height", height)
+                    .attr("fill", "transparent")
+                    .style("cursor", "crosshair")
+                    .on("mousemove", function(event) {
+                        // Get mouse position
+                        const [mouseX] = d3.pointer(event);
+                        
+                        // Convert mouse X to date
+                        const mouseDate = xScale.invert(mouseX);
+                        
+                        // Find closest data point
+                        const bisect = d3.bisector(d => d.date).left;
+                        const index = bisect(housingData, mouseDate, 1);
+                        const d0 = housingData[index - 1];
+                        const d1 = housingData[index];
+                        const d = mouseDate - d0.date > d1.date - mouseDate ? d1 : d0;
+                        
+                        // Show tooltip
+                        tooltip.style("opacity", 1)
+                            .html(`
+                                <div style="font-weight: bold; margin-bottom: 8px;">${d3.timeFormat("%B %Y")(d.date)}</div>
+                                <div style="color: #e74c3c;">Median Price: $${d.price.toLocaleString()}</div>
+                                <div style="color: #27ae60;">Homes Sold: ${d.homes_sold.toLocaleString()}</div>
+                                <div style="color: #f39c12;">Days on Market: ${d.dom} days</div>
+                                <div style="color: #9b59b6;">Price Drops: ${(d.drops * 100).toFixed(1)}%</div>
+                                <div style="color: #34495e;">Months Supply: ${d.supply.toFixed(1)}</div>
+                            `)
+                            .style("left", (event.pageX + 15) + "px")
+                            .style("top", (event.pageY - 10) + "px");
+                        
+                        // Add/update indicator dot
+                        g.selectAll(".indicator-dot").remove();
+                        g.append("circle")
+                            .attr("class", "indicator-dot")
+                            .attr("cx", xScale(d.date))
+                            .attr("cy", yScalePrice(d.price))
+                            .attr("r", 5)
+                            .attr("fill", "#333")
+                            .attr("stroke", "white")
+                            .attr("stroke-width", 2);
+                    })
+                    .on("mouseout", function() {
+                        tooltip.style("opacity", 0);
+                        g.selectAll(".indicator-dot").remove();
+                    });
+                
+                // Add axis labels
+                g.append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 0 - margin.left + 20)
+                    .attr("x", 0 - (height / 2))
+                    .attr("dy", "1em")
+                    .style("text-anchor", "middle")
+                    .style("font-weight", "bold")
+                    .style("fill", "#e74c3c")
+                    .text("Median Home Price");
+                
+                g.append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", width + margin.right - 20)
+                    .attr("x", 0 - (height / 2))
+                    .attr("dy", "-1em")
+                    .style("text-anchor", "middle")
+                    .style("font-weight", "bold")
+                    .style("fill", "#27ae60")
+                    .text("Homes Sold");
+                
+                // Add legend
+                const legend = g.append("g")
+                    .attr("transform", `translate(20, 20)`);
+                
+                legend.append("line")
+                    .attr("x1", 0).attr("x2", 20)
+                    .attr("y1", 0).attr("y2", 0)
+                    .style("stroke", "#e74c3c")
+                    .style("stroke-width", 3);
+                
+                legend.append("text")
+                    .attr("x", 25)
+                    .attr("y", 5)
+                    .text("Median Prices")
+                    .style("fill", "#e74c3c")
+                    .style("font-weight", "bold");
+                
+                legend.append("line")
+                    .attr("x1", 0).attr("x2", 20)
+                    .attr("y1", 20).attr("y2", 20)
+                    .style("stroke", "#27ae60")
+                    .style("stroke-width", 3);
+                
+                legend.append("text")
+                    .attr("x", 25)
+                    .attr("y", 25)
+                    .text("Homes Sold")
+                    .style("fill", "#27ae60")
+                    .style("font-weight", "bold");
+                
+                // Add title
+                g.append("text")
+                    .attr("x", width / 2)
+                    .attr("y", 0 - 15)
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("font-weight", "bold")
+                    .text("Prices Stay High While Sales Drop (2018-2025)");
+                
+                // Find recent data showing market cooling
+                const recentData = housingData[housingData.length - 1];
+                const peakSales = housingData.reduce((max, d) => d.homes_sold > max.homes_sold ? d : max);
+
+                // Market cooling annotation
+                d3.select("#chart3").append("div")
+                    .attr("class", "annotation arrow-left")
+                    .style("left", (xScale(recentData.date) - 160 ) + "px")
+                    .style("top", (yScaleSales(recentData.homes_sold) - 130) + "px")
+                    .html(`
+                        <strong>Market Cooling</strong><br>
+                        Number of houses sold goes down ${Math.round((1 - recentData.homes_sold/peakSales.homes_sold) * 100)}% 
+                        from peak<br>
+                        Prices continue to be high
+                    `);
+
+                console.log("Scene 3: Interactive exploration chart created");
+            }
+
+            // Start loading data
+            loadData();
+        </script>
+    </body>
+</html>
